@@ -32,11 +32,21 @@ bl_info = {
 import bpy
 from bpy.props import BoolProperty
 
+GUN_BASE_TAGS = ["j_gun", "j_gun1",  "j_gun", "j_gun1", "tag_weapon", "tag_weapon1"]
+VIEW_HAND_TAGS = ["t7:tag_weapon_right", "t7:tag_weapon_left", "tag_weapon", "tag_weapon1", "tag_weapon_right", "tag_weapon_left"]
+VIEW_HAND_DEFAULT="tag_weapon_right"
+
 class CoDToolsExtrasProperties(bpy.types.PropertyGroup):
 
         merge_skeleton: bpy.props.BoolProperty(
         name="Merge Skeletons",
         description="Merge imported skeleton with the selected skeleton",
+        default=False
+    )
+
+        left_sided: bpy.props.BoolProperty(
+        name="Left Side",
+        description="Attach weapon to the left side instead",
         default=False
     )
 
@@ -75,6 +85,8 @@ class CoDToolsExtras(bpy.types.Panel):
 
         row = layout.row(align=True)
         row.prop(codextratools, "merge_skeleton", icon='ARMATURE_DATA', text="Merge Skeletons")
+        row = layout.row(align=True)
+        row.prop(codextratools, "left_sided", icon='ARMATURE_DATA', text="Left Sided")
 
 class VIEW3D_Export_Weapon_ANIM(bpy.types.Operator):
     # Export Weapon Animation
@@ -150,15 +162,16 @@ class VIEW3D_Attach_Weapon(bpy.types.Operator):
         skel_hands = find_arms(context)
         skel_weapon = find_weapon_arm(context)
         weapon_mesh = find_weapon_mesh(context)
+        # Parent to hand according to User Preference
+        if bpy.context.scene.def_codextratools.left_sided == True:
+            VIEW_HAND_DEFAULT = "tag_weapon_left"
+        else:
+            VIEW_HAND_DEFAULT = "tag_weapon_right"
 
         if skel_hands is not None and skel_weapon is not None:
             skel_weapon.parent = skel_hands
-            if skel_weapon.pose.bones[0].name == "j_gun":
-                skel_weapon.parent_bone = "tag_weapon"
-            elif skel_weapon.pose.bones[0].name == "tag_weapon":
-                    # Todo - add option to manually specify whether or not the user
-                    #        wants to attach to the left or right hand
-                skel_weapon.parent_bone = "tag_weapon_right"
+            if skel_weapon.pose.bones[0].name in GUN_BASE_TAGS:
+                skel_weapon.parent_bone = VIEW_HAND_DEFAULT
             else:
                 if skel_weapon.pose.bones[0].name in skel_hands.pose.bones:
                     skel_weapon.parent_bone = skel_weapon.pose.bones[0].name
@@ -170,10 +183,7 @@ class VIEW3D_Attach_Weapon(bpy.types.Operator):
             skel_weapon.parent_type = 'BONE'
             skel_weapon.location = (0, -1, 0)
 
-            # Is this necessary?
-            bpy.context.view_layer.update()
-
-            # Merge the skeletons together
+            # Merge the skeletons if the user wants to
             if bpy.context.scene.def_codextratools.merge_skeleton == True:
                 join_armatures(skel_hands, skel_weapon, weapon_mesh)
             else:
@@ -182,10 +192,9 @@ class VIEW3D_Attach_Weapon(bpy.types.Operator):
             # Notify User
             self.report({'INFO'}, "Weapon Attached")
             return {"FINISHED"}
+        # Error Occured, Possibly wrong rig.
         self.report({'INFO'}, "Please select a Weapon Armature")
-        return {"FINISHED"}
-
-        
+        return {"FINISHED"} 
 
 # Functions
 
@@ -198,18 +207,21 @@ def checkmode(context):
         # Clear Selection
         bpy.ops.pose.select_all(action='DESELECT')
 
+# Find viewhands armature based on the tags
 def find_arms(context):
     for ob in bpy.data.objects:
         if ob.type == 'ARMATURE' and ob.pose.bones[0].name == "tag_view":
             return ob
 
+# Find Weapon armature based on the tags
 def find_weapon_arm(context):
     ob = context.active_object
-    if ob.type == 'ARMATURE' and ob.pose.bones[0].name == "tag_weapon":
+    if ob.type == 'ARMATURE' and ob.pose.bones[0].name in GUN_BASE_TAGS:
         return ob
     else:
         return None
 
+# Used for applying the armature modifier mostly, might have to find more uses for it
 def find_weapon_mesh(context):
     ob = context.active_object
     for obj in bpy.data.objects:
@@ -217,9 +229,12 @@ def find_weapon_mesh(context):
             return obj
 
 def join_armatures(skel_hands_ob, skel_weapon_ob, weapon_mesh_ob):
+    # Save the name of the root bone
+    tag_weapon_root = skel_weapon_ob.pose.bones[0].name
+    # Apply the Bone parent transform
     bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
     bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
-    # Select the armatures
+    # Select the viewhand armature
     bpy.context.view_layer.objects.active = skel_hands_ob
     skel_hands_ob.select_set(state=True)
     bpy.ops.object.join()
@@ -227,18 +242,19 @@ def join_armatures(skel_hands_ob, skel_weapon_ob, weapon_mesh_ob):
     # Set the parent relationship
     combined_skeleton = bpy.context.active_object
     bpy.ops.object.mode_set(mode='EDIT')  # Enter edit mode
-    combined_skeleton.data.edit_bones['tag_weapon'].parent = combined_skeleton.data.edit_bones['tag_weapon_right']
+    if tag_weapon_root in combined_skeleton.data.edit_bones:
+        combined_skeleton.data.edit_bones[tag_weapon_root].parent = combined_skeleton.data.edit_bones[VIEW_HAND_DEFAULT]
+    else:
+        print(f"Bone '{tag_weapon_root}' not found in the armature.")
     bpy.ops.object.mode_set(mode='OBJECT')  # Exit edit mode
-
     
-    mesh_ob = weapon_mesh_ob
     # Remove any old armature modifiers
-    if mesh_ob.modifiers:
-        for modifier in mesh_ob.modifiers:
+    if weapon_mesh_ob.modifiers:
+        for modifier in weapon_mesh_ob.modifiers:
             if modifier.type == 'ARMATURE':
-                mesh_ob.modifiers.remove(modifier)
+                weapon_mesh_ob.modifiers.remove(modifier)
     # Apply New armature modifier to the mesh
-    modifier = mesh_ob.modifiers.new(name="Armature Rig", type="ARMATURE")
+    modifier = weapon_mesh_ob.modifiers.new(name="Armature Rig", type="ARMATURE")
     modifier.object = combined_skeleton
 
 # Register Classes
