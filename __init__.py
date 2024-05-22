@@ -32,9 +32,9 @@ bl_info = {
 import bpy
 from bpy.props import BoolProperty
 
-GUN_BASE_TAGS = ["j_gun", "j_gun1",  "j_gun", "j_gun1", "tag_weapon", "tag_weapon1"]
+GUN_BASE_TAGS = ["j_gun", "j_gun1",  "j_gun", "j_gun1", "tag_weapon", "tag_weapon_le", "tag_weapon1"]
 VIEW_HAND_TAGS = ["t7:tag_weapon_right", "t7:tag_weapon_left", "tag_weapon", "tag_weapon1", "tag_weapon_right", "tag_weapon_left"]
-VIEW_HAND_DEFAULT="tag_weapon_right"
+VIEW_HAND_DEFAULT = "tag_weapon_right"
 
 class CoDToolsExtrasProperties(bpy.types.PropertyGroup):
 
@@ -159,15 +159,15 @@ class VIEW3D_Attach_Weapon(bpy.types.Operator):
     
     def execute(self, context):
         # Find Hand Skeleton    
-        skel_hands = find_arms(context)
-        skel_weapon = find_weapon_arm(context)
-        weapon_mesh = find_weapon_mesh(context)
-        # Parent to hand according to User Preference
         if bpy.context.scene.def_codextratools.left_sided == True:
             VIEW_HAND_DEFAULT = "tag_weapon_left"
         else:
             VIEW_HAND_DEFAULT = "tag_weapon_right"
 
+        skel_hands = find_arms(context)
+        skel_weapon = find_weapon_arm(context)
+        weapon_mesh = find_weapon_mesh(context)
+        # Parent to hand according to User Preference
         if skel_hands is not None and skel_weapon is not None:
             skel_weapon.parent = skel_hands
             if skel_weapon.pose.bones[0].name in GUN_BASE_TAGS:
@@ -238,6 +238,10 @@ def join_armatures(skel_hands_ob, skel_weapon_ob, weapon_mesh_ob):
     bpy.context.view_layer.objects.active = skel_hands_ob
     skel_hands_ob.select_set(state=True)
     bpy.ops.object.join()
+    if bpy.context.scene.def_codextratools.left_sided == True:
+        VIEW_HAND_DEFAULT = "tag_weapon_left"
+    else:
+        VIEW_HAND_DEFAULT = "tag_weapon_right"
 
     # Set the parent relationship
     combined_skeleton = bpy.context.active_object
@@ -247,7 +251,7 @@ def join_armatures(skel_hands_ob, skel_weapon_ob, weapon_mesh_ob):
     else:
         print(f"Bone '{tag_weapon_root}' not found in the armature.")
     bpy.ops.object.mode_set(mode='OBJECT')  # Exit edit mode
-    
+
     # Remove any old armature modifiers
     if weapon_mesh_ob.modifiers:
         for modifier in weapon_mesh_ob.modifiers:
